@@ -3,6 +3,21 @@ import requests
 import os
 import threading
 
+class VideoThread(threading.Thread):
+    def __init__(self, iRequestLine, iVideoHandler):
+        threading.Thread.__init__(self)
+        self.requestLine = iRequestline
+        self.videoHandler = iVideoHandler
+
+    def run(self):
+        response = requests.get(self.requestLine, stream=True)
+        self.videoHandler.send_response(200)
+        for key, value in response.headers.items():
+            self.videoHandler.send_header(key, value)
+        self.videoHandler.end_headers()
+        for chunk in response.iter_content(1000):
+            self.videoHandler.wfile.write(chunk)
+            self.videoHandler.wfile.flush()
 
 class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -13,18 +28,9 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         #requestline = "http://google.fr"
         requestline = "http://192.168.1.19:8080/videofeed"
         print "send request:", requestline
-        response = requests.get(requestline, stream=True)
-        #response = requests.get(requestline, headers=self.headers)
-        self.send_response(200)
-        for key, value in response.headers.items():
-            self.send_header(key, value)
-        self.end_headers()
-        for chunk in response.iter_content(1000):
-            #print "chunk[0] =", chunk[0]
-            self.wfile.write(chunk)
-            self.wfile.flush()
-        #print "text:", response.text
-        #print "raw:", response.raw.read(10)
+        thread1 = VideoThread(requestline, self)
+        thread1.start()
+        print "done"
         return True
 
     def handle_one_request(self):
