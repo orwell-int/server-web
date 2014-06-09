@@ -5,5 +5,5 @@ env/bin/activate:
 develop: env/bin/activate
 
 start: develop
-	. env/bin/activate && python ./src/webserver.py &
+	. env/bin/activate && python ./src/webserver.py ${ARGS} &
 

@@ -11,7 +11,7 @@ from SocketServer import ThreadingMixIn
 class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_GET(self):
         print "received request : " + self.raw_requestline
-        requestline = "http://{ip}:8080/videofeed".format(ip=VideoHandler.feed_ip);
+        requestline = VideoHandler.url
         #requestline = "http://easyhtml5video.com/images/happyfit2.mp4"
 
         print threading.currentThread().getName()
@@ -69,12 +69,21 @@ class ThreadedHTTPServer(ThreadingMixIn, BaseHTTPServer.HTTPServer):
 
 def main():
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('--ip', action='store', dest='videofeed_ip', help='the IP adresse of the videofeed', default='192.198.1.1')
-    argparser.add_argument('-p', action='store', dest='port', type=int, help='the port on which this server retransmits', default='9100')
+    argparser.add_argument('-u',
+            action='store',
+            dest='videofeed_url',
+            help='the url of the videofeed',
+            default='http://192.198.1.1:8080/videofeed')
+    argparser.add_argument('-p',
+            action='store',
+            dest='output_port',
+            type=int,
+            help='the port on which this server retransmits',
+            default='9100')
     arguments = argparser.parse_args()
 
-    VideoHandler.feed_ip = arguments.videofeed_ip
-    server = ThreadedHTTPServer( ('', arguments.port), VideoHandler )
+    VideoHandler.url = arguments.videofeed_url
+    server = ThreadedHTTPServer( ('', arguments.output_port), VideoHandler )
     server.serve_forever()
 
 if ("__main__" == __name__):
