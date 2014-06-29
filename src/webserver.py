@@ -1,6 +1,6 @@
+import os
 import BaseHTTPServer
 import requests
-import os
 import threading
 import socket
 import argparse
@@ -80,8 +80,16 @@ def main():
             type=int,
             help='the port on which this server retransmits',
             default='9100')
+    argparser.add_argument('--pid-file',
+            action='store',
+            dest='pid_file',
+            help='the itmp file in which we store the pids of the webservers',
+            default=None)
     arguments = argparser.parse_args()
 
+    if (arguments.pid_file is not None):
+        with open(arguments.pid_file, "w") as pidfile:
+            pidfile.write(str(os.getpid()))
     VideoHandler.url = arguments.videofeed_url
     server = ThreadedHTTPServer( ('', arguments.output_port), VideoHandler )
     server.serve_forever()
