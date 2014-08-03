@@ -19,12 +19,48 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.send_response(200)
         for key, value in response.headers.items():
             print key, value
+            if "content-type" == key:
+                _, _, boundary = value.partition("boundary=")
             self.send_header(key, value)
         self.end_headers()
+
+        image = ""
+        self.dumped = False
+        image_started = False
         for chunk in response.iter_content(1000):
+            index_chunk1 = chunk.find(boundary)
+            if index_chunk1 != -1:
+                print "image starts at ", index_chunk1
+                if (image_started):
+                    image += chunk[:index_chunk1]
+                    image_started = False
+                    self.dump_image(image)
+                else:
+                    index_chunk1 += len(boundary)
+                    index_chunk2 = chunk.find(boundary, index_chunk1)
+                    if index_chunk2 != -1:
+                        image = chunk[index_chunk1:index_chunk2]
+                        image_started = False
+                        self.dump_image(image)
+                    else:
+                        image_started = True
+                        image += chunk[index_chunk1:]
+            else:
+                if image_started:
+                    image += chunk
+            
             self.wfile.write(chunk)
             self.wfile.flush()
         return True
+
+    def dump_image(self, image):
+        if not self.dumped:
+            index = 0
+            for i in range(4):
+                index = image.find("\r\n", index) + 2
+            with open("image.jpg","w") as dump:
+                dump.write(image[index:])
+            self.dumped = True
 
     def handle_one_request(self):
         """Handle a single HTTP request.
