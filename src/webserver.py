@@ -28,26 +28,34 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         self.dumped = False
         image_started = False
         for chunk in response.iter_content(1000):
-            index_chunk1 = chunk.find(boundary)
-            if index_chunk1 != -1:
-                print "image starts at ", index_chunk1
-                if (image_started):
-                    image += chunk[:index_chunk1]
-                    image_started = False
-                    self.dump_image(image)
-                else:
-                    index_chunk1 += len(boundary)
-                    index_chunk2 = chunk.find(boundary, index_chunk1)
-                    if index_chunk2 != -1:
-                        image = chunk[index_chunk1:index_chunk2]
+            message = VideoHandler.socket.recv(zmq.NOBLOCK)
+            if (message is not None):
+                if "capture" == message:
+                    capture = True
+
+            if capture:
+                index_chunk1 = chunk.find(boundary)
+                if index_chunk1 != -1:
+                    print "image starts at ", index_chunk1
+                    if (image_started):
+                        image += chunk[:index_chunk1]
                         image_started = False
                         self.dump_image(image)
+                        capture = False
                     else:
-                        image_started = True
-                        image += chunk[index_chunk1:]
-            else:
-                if image_started:
-                    image += chunk
+                        index_chunk1 += len(boundary)
+                        index_chunk2 = chunk.find(boundary, index_chunk1)
+                        if index_chunk2 != -1:
+                            image = chunk[index_chunk1:index_chunk2]
+                            image_started = False
+                            self.dump_image(image)
+                            capture = False
+                        else:
+                            image_started = True
+                            image += chunk[index_chunk1:]
+                else:
+                    if image_started:
+                        image += chunk
             
             self.wfile.write(chunk)
             self.wfile.flush()
@@ -58,8 +66,7 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             index = 0
             for i in range(4):
                 index = image.find("\r\n", index) + 2
-            with open("image.jpg","w") as dump:
-                dump.write(image[index:])
+            VideoHandler.socket.send(image[index:])
             self.dumped = True
 
     def handle_one_request(self):
@@ -110,6 +117,12 @@ def main():
             dest='videofeed_url',
             help='the url of the videofeed',
             default='http://192.198.1.1:8080/videofeed')
+    argparser.add_argument('-l',
+            action='store',
+            dest='listen_port',
+            type=int,
+            help='the port on which this server listens to instructions',
+            default='9010')
     argparser.add_argument('-p',
             action='store',
             dest='output_port',
@@ -122,11 +135,20 @@ def main():
             help='the itmp file in which we store the pids of the webservers',
             default=None)
     arguments = argparser.parse_args()
-
+    
+    import zmq
+    context = zmq.Context()
+    socket = context.socket(zmq.REP)
+    socket.setsockopt(zmq.LINGER, 1)
+    socket.bind("tcp://*:%i" % (arguments.listen_port))
+    # if we do not wait the first messages are lost
+    import time
+    time.sleep(0.6)
     if (arguments.pid_file is not None):
         with open(arguments.pid_file, "w") as pidfile:
             pidfile.write(str(os.getpid()))
     VideoHandler.url = arguments.videofeed_url
+    VideoHandler.socket = socket
     server = ThreadedHTTPServer( ('', arguments.output_port), VideoHandler )
     server.serve_forever()
 
