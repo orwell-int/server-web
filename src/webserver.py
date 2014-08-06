@@ -5,20 +5,20 @@ import threading
 import socket
 import argparse
 from SocketServer import ThreadingMixIn
-
+import logging
 
 
 class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_GET(self):
-        print "received request : " + self.raw_requestline
+        logging.info("received request : " + self.raw_requestline)
         requestline = VideoHandler.url
         #requestline = "http://easyhtml5video.com/images/happyfit2.mp4"
 
-        print threading.currentThread().getName()
+        logging.debug(threading.currentThread().getName())
         response = requests.get(requestline, stream=True)
         self.send_response(200)
         for key, value in response.headers.items():
-            print key, value
+            logging.debug(key + " " + value)
             self.send_header(key, value)
         self.end_headers()
         for chunk in response.iter_content(1000):
@@ -55,7 +55,8 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             method = getattr(self, mname)
             do_not_flush = method()
             if (not do_not_flush):
-                self.wfile.flush() #actually send the response if not already done.
+                #actually send the response if not already done.
+                self.wfile.flush()
         except socket.timeout, e:
             #a read or a write timed out.  Discard this connection
             self.log_error("Request timed out: %r", e)
@@ -69,29 +70,36 @@ class ThreadedHTTPServer(ThreadingMixIn, BaseHTTPServer.HTTPServer):
 
 def main():
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('-u',
-            action='store',
-            dest='videofeed_url',
-            help='the url of the videofeed',
-            default='http://192.198.1.1:8080/videofeed')
-    argparser.add_argument('-p',
-            action='store',
-            dest='output_port',
-            type=int,
-            help='the port on which this server retransmits',
-            default='9100')
-    argparser.add_argument('--pid-file',
-            action='store',
-            dest='pid_file',
-            help='the itmp file in which we store the pids of the webservers',
-            default=None)
+    argparser.add_argument(
+        '-u',
+        action='store',
+        dest='videofeed_url',
+        help='the url of the videofeed',
+        default='http://192.198.1.1:8080/videofeed')
+    argparser.add_argument(
+        '-p',
+        action='store',
+        dest='output_port',
+        type=int,
+        help='the port on which this server retransmits',
+        default='9100')
+    argparser.add_argument(
+        '--pid-file',
+        action='store',
+        dest='pid_file',
+        help='the itmp file in which we store the pids of the webservers',
+        default=None)
     arguments = argparser.parse_args()
 
     if (arguments.pid_file is not None):
+        logging.basicConfig(
+            filename=arguments.pid_file + '.log',
+            level=logging.DEBUG)
         with open(arguments.pid_file, "w") as pidfile:
             pidfile.write(str(os.getpid()))
     VideoHandler.url = arguments.videofeed_url
-    server = ThreadedHTTPServer( ('', arguments.output_port), VideoHandler )
+    server = ThreadedHTTPServer(('', arguments.output_port), VideoHandler)
+    logging.info("Start server")
     server.serve_forever()
 
 if ("__main__" == __name__):
