@@ -7,3 +7,6 @@ develop: env/bin/activate
 start: develop
 	. env/bin/activate && python ./src/webserver.py ${ARGS} &
 
+client: develop
+	. env/bin/activate && python ./src/client.py ${ARGS} &
+
