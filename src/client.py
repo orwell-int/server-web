@@ -7,14 +7,13 @@ import zmq
 
 def read(
         url,
-        socket):
+        socket,
+        delay):
     print "Send request to", url
     response = requests.get(url, stream=True)
     begin = datetime.datetime.now()
-    end = begin + datetime.timedelta(seconds=5)
+    end = begin + datetime.timedelta(seconds=delay)
     for chunk in response.iter_content(1000):
-        #print "(fake client)chunk"
-        #print repr(chunk)
         try:
             print '(fake client)zmq?'
             message = socket.recv(zmq.NOBLOCK)
@@ -46,6 +45,13 @@ def main():
         help='the url of the videofeed',
         default=None)
     argparser.add_argument(
+        '--delay',
+        '-d',
+        action='store',
+        type=int,
+        help='Delay before the client exits (in seconds).',
+        default=5)
+    argparser.add_argument(
         '-l',
         action='store',
         dest='listen_port',
@@ -62,7 +68,7 @@ def main():
         socket.bind("tcp://*:%i" % (arguments.listen_port))
         print "created REP socket on port", arguments.listen_port
         time.sleep(0.6)
-        read(arguments.url, socket)
+        read(arguments.url, socket, arguments.delay)
 
 if ("__main__" == __name__):
     main()
