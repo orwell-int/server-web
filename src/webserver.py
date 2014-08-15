@@ -261,8 +261,6 @@ def dump_to_file(
 
 
 def main():
-    spy = open("spy.log", "w")
-    spy.write("(webserver)start\n")
     argparser = argparse.ArgumentParser()
     argparser.add_argument(
         '-u',
@@ -301,13 +299,10 @@ def main():
         ' to be used as a fake url.',
         default=None)
     arguments = argparser.parse_args()
-    spy.write("(webserver)parsed arguments\n")
     if (arguments.pid_file is not None):
-        spy.write("(webserver)configure logger\n")
         logging.basicConfig(
             filename=arguments.pid_file + '.log',
             level=logging.DEBUG)
-        spy.write("(webserver)open pid file\n")
         with open(arguments.pid_file, "w") as pidfile:
             pidfile.write(str(os.getpid()))
 
