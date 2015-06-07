@@ -13,43 +13,56 @@ import time
 class FakeResponse(object):
     def __init__(self, path):
         self._path = path
+        self._stop = False
         directory = os.path.dirname(path)
         self._content = ""
         import json
         json_data = ""
-        self._images = []
-        with open(self._path, 'r') as data_file:
-            json_data = data_file.readline()
-            for part in data_file.readlines():
-                part = part.strip('\r\n')
-                #print "read part from", part
-                with open(os.path.join(directory, part), 'r') as part_file:
-                    self._images.append(part_file.read())
-            #self._content = bytearray(data_file.read())
+        self._frames = []
+        with open(self._path, 'rb') as data_file:
+            json_data = data_file.read()
         data = json.loads(json_data)
-        self.headers = data["headers"]
+        frame_separator = data["frame_separator"]
+        for image in data["frames"]:
+            print "read image from", image
+            with open(os.path.join(directory, image), 'rb') as image_file:
+                image_data = bytearray(image_file.read())
+                #image_data = unicode(image_data, 'utf-8')
+                frame = bytearray(b'--')
+                frame += bytearray(frame_separator, 'utf-8')
+                frame += bytearray(b'\r\n')
+                frame += bytearray(b'Content-Type: image/jpeg\r\n\r\n')
+                frame += image_data + bytearray(b'\r\n')
+                self._frames.append(frame)
+        self.headers = {key: value.format(frame_separator=frame_separator)
+                        for key, value in data["headers"].items()}
+        print "headers"
+        print str(self.headers)
         self._image_index = 0
         self._index = 0
         #print "content-type =", self.headers["content-type"]
-        self._image_count = len(self._images)
-        self._lengths = [len(image) for image in self._images]
+        self._image_count = len(self._frames)
+        self._lengths = [len(image) for image in self._frames]
         #print "image count =", self._image_count
+
+    def stop(self):
+        self._stop = True
 
     def iter_content(self, count):
         wait = False
-        while (True):
+        while (not self._stop):
             buffer = bytearray()
             end = count + self._index
             if (end > self._lengths[self._image_index]):
                 # here we reach the end of an image so we go to the end
                 # and wait without filling completely the buffer
-                buffer.extend(self._images[self._image_index][self._index:])
+                buffer.extend(self._frames[self._image_index][self._index:])
                 # switch to next image
                 self._image_index = (self._image_index + 1) % self._image_count
                 self._index = 0
                 wait = True
             else:
-                buffer = self._images[self._image_index][self._index:end]
+                buffer = self._frames[self._image_index][self._index:end]
                 self._index += count
             yield buffer
             if (wait):
@@ -74,18 +87,21 @@ def netstat():
 
 class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_GET(self):
+        #print "do_GET"
         logging.info("received request : " + self.raw_requestline)
-        if (os.path.exists(VideoHandler.url)):
+        self._fake = os.path.exists(VideoHandler.url)
+        if (self._fake):
+            print("start fake server")
             logging.info("start fake server")
-            response = FakeResponse(VideoHandler.url)
+            self._response = FakeResponse(VideoHandler.url)
         else:
             requestline = VideoHandler.url
 
             logging.debug(threading.currentThread().getName())
             logging.info("send request")
-            response = requests.get(requestline, stream=True)
+            self._response = requests.get(requestline, stream=True)
         self.send_response(200)
-        for key, value in response.headers.items():
+        for key, value in self._response.headers.items():
             logging.debug(key + " " + value)
             if "content-type" == key:
                 _, _, boundary = value.partition("boundary=")
@@ -105,7 +121,7 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         previous = latest
         delta = datetime.timedelta(microseconds=1000 * 500)  # 0.5s
         logging.info("begin transmission of chunks")
-        for chunk in response.iter_content(1000):
+        for chunk in self._response.iter_content(1000):
             latest = datetime.datetime.now()
             if (latest - previous > delta):
                 logging.debug("still sending chunks ...")
@@ -214,6 +230,25 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             self.log_error("Request timed out: %r", e)
             self.close_connection = 1
             return
+        except socket.error, e:
+            if e.args[0] == 32:
+                # broken pipe
+                self._stop()
+                return
+            raise e
+
+    def finish(self, *args, **kw):
+        try:
+            if not self.wfile.closed:
+                self.wfile.flush()
+                self.wfile.close()
+        except socket.error:
+            pass
+        self.rfile.close()
+
+    def _stop(self):
+        if (self._fake):
+            self._response.stop()
 
 
 class ThreadedHTTPServer(ThreadingMixIn, BaseHTTPServer.HTTPServer):
@@ -235,7 +270,7 @@ def dump_to_file(
     content = ""
     filled = False
     image_started = False
-    expected_images = 100
+    expected_images = 4
 
     for chunk in response.iter_content(1000):
         if (not image_started):
@@ -251,6 +286,7 @@ def dump_to_file(
                 content.split(boundary)[:expected_images])
             filled = True
             break
+    #print "filled =", filled
     if (filled):
         with open(filename, "w") as writer:
             import json
