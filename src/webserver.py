@@ -153,11 +153,11 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                             self._image = chunk[index_chunk1:index_chunk2]
                             self._finalize_image()
                         else:
-                            image_started = True
+                            self._image_started = True
                             self._image += chunk[index_chunk1:]
                 else:
                     logging.debug("image continues (no boundary found)")
-                    if image_started:
+                    if self._image_started:
                         self._image += chunk
 
             self.wfile.write(chunk)
