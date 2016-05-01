@@ -1,4 +1,4 @@
 server-web
 ==========
 
-A web server to welcome clients through the web.
+A python web server to forward a video stream to a client and capture images on demand.
