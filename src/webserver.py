@@ -72,6 +72,70 @@ class FakeResponse(object):
                 wait = False
 
 
+class GstResponse(object):
+    def __init__(self, video_format):
+        self._video_format = video_format
+        assert(video_format in ('mp4', 'ogg', 'mkv', 'webm'))
+        self._stop = False
+        self.headers = {'Content-type': 'video/' + video_format}
+        print "headers"
+        print str(self.headers)
+
+    def stop(self):
+        self._stop = True
+
+    def iter_content(self, count):
+        import subprocess
+        wait = False
+        command = 'echo "--video boundary--" ;'
+        if ('mp4' == self._video_format):
+            command += 'gst-launch-1.0 -e -q videotestsrc is-live=true' \
+                + ' ! video/x-raw, framerate=5/1, width=160, height=120' \
+                + ' ! clockoverlay shaded-background=true font-desc="Sans 38"' \
+                + ' ! videoconvert' \
+                + ' ! x264enc' \
+                + ' ! h264parse' \
+                + ' ! mp4mux streamable=true fragment-duration=10 presentation-time=true' \
+                + ' ! filesink location=/dev/stdout'
+        elif ('ogg' == self._video_format):
+            command += 'gst-launch-1.0 -e -q videotestsrc is-live=true' \
+                + ' ! video/x-raw, framerate=5/1, width=1024, height=768' \
+                + ' ! clockoverlay shaded-background=true font-desc="Sans 38"' \
+                + ' ! theoraenc' \
+                + ' ! oggmux max-delay=0' \
+                + ' ! filesink location=/dev/stdout'
+        elif ('mkv' == self._video_format):
+            command += 'gst-launch-1.0 -e -q videotestsrc is-live=true' \
+                + ' ! video/x-raw, framerate=5/1, width=1024, height=768' \
+                + ' ! clockoverlay shaded-background=true font-desc="Sans 38"' \
+                + ' ! videoconvert' \
+                + ' ! x264enc' \
+                + ' ! h264parse' \
+                + ' ! matroskamux' \
+                + ' ! filesink location=/dev/stdout'
+        elif ('webm' == self._video_format):
+            command += 'gst-launch-1.0 -e -q videotestsrc is-live=true' \
+                + ' ! video/x-raw, framerate=5/1, width=1024, height=768' \
+                + ' ! clockoverlay shaded-background=true font-desc="Sans 38"' \
+                + ' ! videoconvert' \
+                + ' ! vp8enc' \
+                + ' ! webmmux' \
+                + ' ! filesink location=/dev/stdout'
+        process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                bufsize=-1,
+                shell=True)
+        print("starting polling loop.")
+        while (not self._stop):
+            # print "looping... "
+            chars = process.stdout.read(2000)
+            # print repr(chars)
+            yield chars
+            if (process.poll() is not None):
+                self.stop()
+
+
 def netstat():
     import subprocess
     command = ['netstat', '-l', '-p']
@@ -89,11 +153,16 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_GET(self):
         #print "do_GET"
         logging.info("received request : " + self.raw_requestline)
-        self._fake = os.path.exists(VideoHandler.url)
+        self._fake =  not VideoHandler.url.startswith('http')
+        gst = False
         if (self._fake):
             print("start fake server")
             logging.info("start fake server")
-            self._response = FakeResponse(VideoHandler.url)
+            if (os.path.exists(VideoHandler.url)):
+                self._response = FakeResponse(VideoHandler.url)
+            else:
+                self._response = GstResponse(VideoHandler.url)
+                gst = True
         else:
             requestline = VideoHandler.url
 
