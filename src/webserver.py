@@ -136,6 +136,38 @@ class GstResponse(object):
                 self.stop()
 
 
+class PipeResponse(object):
+    def __init__(self, nc_parameters):
+        self._command = nc_parameters.replace(':', ' ')
+        self._command += ' | gst-launch-1.0 filesrc location=/dev/fd/0'
+        self._command += ' ! h264parse'
+        self._command += ' ! avdec_h264'
+        self._command += ' ! jpegenc'
+        self._command += ' ! multipartmux'
+        self._command += ' ! filesink location=/dev/stdout'
+        self._data_chunk_size = 10000
+
+    def stop(self):
+        self._stop = True
+
+    def iter_content(self, count):
+        import subprocess
+        process = subprocess.Popen(
+            self._command,
+            stdout=subprocess.PIPE,
+            bufsize=-1,
+            shell=True)
+        wait = False
+        print("starting polling loop.")
+        while (not self._stop):
+            # print "looping... "
+            chars = process.stdout.read(self._data_chunk_size)
+            # print repr(chars)
+            yield chars
+            if (process.poll() is not None):
+                self.stop()
+
+
 def netstat():
     import subprocess
     command = ['netstat', '-l', '-p']
@@ -153,7 +185,8 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_GET(self):
         #print "do_GET"
         logging.info("received request : " + self.raw_requestline)
-        self._fake =  not VideoHandler.url.startswith('http')
+        self._fake =  not any((VideoHandler.url.startswith(x)
+                               for x in ('http', 'nc')))
         gst = False
         if (self._fake):
             print("start fake server")
@@ -164,11 +197,15 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 self._response = GstResponse(VideoHandler.url)
                 gst = True
         else:
-            requestline = VideoHandler.url
+            if (VideoHandler.url.startswith('http')):
+                requestline = VideoHandler.url
 
-            logging.debug(threading.currentThread().getName())
-            logging.info("send request")
-            self._response = requests.get(requestline, stream=True)
+                logging.debug(threading.currentThread().getName())
+                logging.info("send request")
+                self._response = requests.get(requestline, stream=True)
+            else:
+                assert(VideoHandler.url.startswith('nc'))
+                self._response = PipeResponse(VideoHandler.url)
         self.send_response(200)
         for key, value in self._response.headers.items():
             logging.debug(key + " " + value)
