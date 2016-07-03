@@ -138,6 +138,9 @@ class GstResponse(object):
 
 class PipeResponse(object):
     def __init__(self, nc_parameters):
+        self.headers = \
+            {"content-type":
+                "multipart/x-mixed-replace; boundary=--ThisRandomString"}
         self._command = nc_parameters.replace(':', ' ')
         self._command += ' | gst-launch-1.0 filesrc location=/dev/fd/0'
         self._command += ' ! h264parse'
@@ -146,6 +149,7 @@ class PipeResponse(object):
         self._command += ' ! multipartmux'
         self._command += ' ! filesink location=/dev/stdout'
         self._data_chunk_size = 10000
+        self._stop = False
 
     def stop(self):
         self._stop = True
@@ -183,7 +187,7 @@ def netstat():
 
 class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_GET(self):
-        #print "do_GET"
+        # print "do_GET"
         logging.info("received request : " + self.raw_requestline)
         self._fake =  not any((VideoHandler.url.startswith(x)
                                for x in ('http', 'nc')))
@@ -195,8 +199,8 @@ class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 self._response = FakeResponse(VideoHandler.url)
             else:
                 self._response = GstResponse(VideoHandler.url)
-                gst = True
         else:
+            # print("start real server")
             if (VideoHandler.url.startswith('http')):
                 requestline = VideoHandler.url
 
