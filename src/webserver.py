@@ -72,6 +72,106 @@ class FakeResponse(object):
                 wait = False
 
 
+class GstResponse(object):
+    def __init__(self, video_format):
+        self._video_format = video_format
+        assert(video_format in ('mp4', 'ogg', 'mkv', 'webm'))
+        self._stop = False
+        self.headers = {'Content-type': 'video/' + video_format}
+        print "headers"
+        print str(self.headers)
+
+    def stop(self):
+        self._stop = True
+
+    def iter_content(self, count):
+        import subprocess
+        wait = False
+        command = 'echo "--video boundary--" ;'
+        if ('mp4' == self._video_format):
+            command += 'gst-launch-1.0 -e -q videotestsrc is-live=true' \
+                + ' ! video/x-raw, framerate=5/1, width=160, height=120' \
+                + ' ! clockoverlay shaded-background=true font-desc="Sans 38"' \
+                + ' ! videoconvert' \
+                + ' ! x264enc' \
+                + ' ! h264parse' \
+                + ' ! mp4mux streamable=true fragment-duration=10 presentation-time=true' \
+                + ' ! filesink location=/dev/stdout'
+        elif ('ogg' == self._video_format):
+            command += 'gst-launch-1.0 -e -q videotestsrc is-live=true' \
+                + ' ! video/x-raw, framerate=5/1, width=1024, height=768' \
+                + ' ! clockoverlay shaded-background=true font-desc="Sans 38"' \
+                + ' ! theoraenc' \
+                + ' ! oggmux max-delay=0' \
+                + ' ! filesink location=/dev/stdout'
+        elif ('mkv' == self._video_format):
+            command += 'gst-launch-1.0 -e -q videotestsrc is-live=true' \
+                + ' ! video/x-raw, framerate=5/1, width=1024, height=768' \
+                + ' ! clockoverlay shaded-background=true font-desc="Sans 38"' \
+                + ' ! videoconvert' \
+                + ' ! x264enc' \
+                + ' ! h264parse' \
+                + ' ! matroskamux' \
+                + ' ! filesink location=/dev/stdout'
+        elif ('webm' == self._video_format):
+            command += 'gst-launch-1.0 -e -q videotestsrc is-live=true' \
+                + ' ! video/x-raw, framerate=5/1, width=1024, height=768' \
+                + ' ! clockoverlay shaded-background=true font-desc="Sans 38"' \
+                + ' ! videoconvert' \
+                + ' ! vp8enc' \
+                + ' ! webmmux' \
+                + ' ! filesink location=/dev/stdout'
+        process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                bufsize=-1,
+                shell=True)
+        print("starting polling loop.")
+        while (not self._stop):
+            # print "looping... "
+            chars = process.stdout.read(2000)
+            # print repr(chars)
+            yield chars
+            if (process.poll() is not None):
+                self.stop()
+
+
+class PipeResponse(object):
+    def __init__(self, nc_parameters):
+        self.headers = \
+            {"content-type":
+                "multipart/x-mixed-replace; boundary=--ThisRandomString"}
+        self._command = nc_parameters.replace(':', ' ')
+        self._command += ' | gst-launch-1.0 filesrc location=/dev/fd/0'
+        self._command += ' ! h264parse'
+        self._command += ' ! avdec_h264'
+        self._command += ' ! jpegenc'
+        self._command += ' ! multipartmux'
+        self._command += ' ! filesink location=/dev/stdout'
+        self._data_chunk_size = 10000
+        self._stop = False
+
+    def stop(self):
+        self._stop = True
+
+    def iter_content(self, count):
+        import subprocess
+        process = subprocess.Popen(
+            self._command,
+            stdout=subprocess.PIPE,
+            bufsize=-1,
+            shell=True)
+        wait = False
+        print("starting polling loop.")
+        while (not self._stop):
+            # print "looping... "
+            chars = process.stdout.read(self._data_chunk_size)
+            # print repr(chars)
+            yield chars
+            if (process.poll() is not None):
+                self.stop()
+
+
 def netstat():
     import subprocess
     command = ['netstat', '-l', '-p']
@@ -87,19 +187,29 @@ def netstat():
 
 class VideoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     def do_GET(self):
-        #print "do_GET"
+        # print "do_GET"
         logging.info("received request : " + self.raw_requestline)
-        self._fake = os.path.exists(VideoHandler.url)
+        self._fake =  not any((VideoHandler.url.startswith(x)
+                               for x in ('http', 'nc')))
+        gst = False
         if (self._fake):
             print("start fake server")
             logging.info("start fake server")
-            self._response = FakeResponse(VideoHandler.url)
+            if (os.path.exists(VideoHandler.url)):
+                self._response = FakeResponse(VideoHandler.url)
+            else:
+                self._response = GstResponse(VideoHandler.url)
         else:
-            requestline = VideoHandler.url
+            # print("start real server")
+            if (VideoHandler.url.startswith('http')):
+                requestline = VideoHandler.url
 
-            logging.debug(threading.currentThread().getName())
-            logging.info("send request")
-            self._response = requests.get(requestline, stream=True)
+                logging.debug(threading.currentThread().getName())
+                logging.info("send request")
+                self._response = requests.get(requestline, stream=True)
+            else:
+                assert(VideoHandler.url.startswith('nc'))
+                self._response = PipeResponse(VideoHandler.url)
         self.send_response(200)
         for key, value in self._response.headers.items():
             logging.debug(key + " " + value)
